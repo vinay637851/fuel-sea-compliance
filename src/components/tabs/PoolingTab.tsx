@@ -36,16 +36,20 @@ const PoolingTab = () => {
 
   const calculatePooling = () => {
     if (!isPoolValid) {
-      toast.error("Pool sum must be non-negative");
+      toast.error("Invalid pool configuration", {
+        description: `Total CB is ${totalCB.toLocaleString()} gCO₂eq (must be ≥ 0)`
+      });
       return;
     }
 
     if (selectedMembers.length < 2) {
-      toast.error("Pool must have at least 2 members");
+      toast.error("Insufficient members", {
+        description: "Pool must have at least 2 members"
+      });
       return;
     }
 
-    // Greedy allocation algorithm
+    // Greedy allocation algorithm (Article 21)
     const sorted = [...selectedMembers].sort((a, b) => b.cbBefore - a.cbBefore);
     const newAllocations = sorted.map((m) => ({ ...m, cbAfter: m.cbBefore }));
 
@@ -54,7 +58,10 @@ const PoolingTab = () => {
       if (newAllocations[i].cbAfter > 0) {
         for (let j = newAllocations.length - 1; j >= 0; j--) {
           if (newAllocations[j].cbAfter < 0) {
-            const transfer = Math.min(newAllocations[i].cbAfter, Math.abs(newAllocations[j].cbAfter));
+            const transfer = Math.min(
+              newAllocations[i].cbAfter, 
+              Math.abs(newAllocations[j].cbAfter)
+            );
             newAllocations[i].cbAfter -= transfer;
             newAllocations[j].cbAfter += transfer;
           }
@@ -62,25 +69,33 @@ const PoolingTab = () => {
       }
     }
 
-    // Validate rules
-    const deficitShipsValid = newAllocations.every((m) => {
-      if (m.cbBefore < 0) {
-        return m.cbAfter >= m.cbBefore; // Cannot exit worse
+    // Validate Article 21 rules
+    const violations: string[] = [];
+    
+    newAllocations.forEach((m) => {
+      // Rule 1: Deficit ship cannot exit worse
+      if (m.cbBefore < 0 && m.cbAfter < m.cbBefore) {
+        violations.push(`${m.shipId}: deficit cannot worsen`);
       }
-      return true;
+      
+      // Rule 2: Surplus ship cannot exit negative
+      if (m.cbBefore > 0 && m.cbAfter < 0) {
+        violations.push(`${m.shipId}: surplus cannot go negative`);
+      }
     });
 
-    const surplusShipsValid = newAllocations.every((m) => {
-      if (m.cbBefore > 0) {
-        return m.cbAfter >= 0; // Cannot exit negative
-      }
-      return true;
-    });
-
-    if (!deficitShipsValid || !surplusShipsValid) {
-      toast.error("Pool allocation violates FuelEU rules");
+    if (violations.length > 0) {
+      toast.error("Pool violates Article 21 rules", {
+        description: violations.join("; ")
+      });
       return;
     }
+
+    // Calculate improvements
+    const improvements = newAllocations.filter((m) => {
+      if (m.cbBefore < 0) return m.cbAfter > m.cbBefore;
+      return false;
+    });
 
     // Update state
     setMembers(
@@ -90,7 +105,9 @@ const PoolingTab = () => {
       })
     );
 
-    toast.success("Pool created successfully with compliant allocation");
+    toast.success("Pool created successfully", {
+      description: `${improvements.length} ship(s) improved compliance balance`
+    });
   };
 
   const resetPool = () => {

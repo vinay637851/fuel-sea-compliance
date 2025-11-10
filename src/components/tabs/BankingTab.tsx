@@ -36,13 +36,24 @@ const BankingTab = () => {
 
   const handleBank = () => {
     if (!currentBalance || currentBalance.cbGCO2eq <= 0) {
-      toast.error("Cannot bank negative or zero compliance balance");
+      toast.error("Cannot bank negative or zero compliance balance", {
+        description: "Only positive CB can be banked for future use"
+      });
       return;
     }
 
     const amount = parseFloat(bankAmount);
-    if (isNaN(amount) || amount <= 0 || amount > currentBalance.cbGCO2eq) {
-      toast.error("Invalid bank amount");
+    if (isNaN(amount) || amount <= 0) {
+      toast.error("Invalid amount", {
+        description: "Please enter a positive number"
+      });
+      return;
+    }
+
+    if (amount > currentBalance.cbGCO2eq) {
+      toast.error("Insufficient balance", {
+        description: `Available: ${currentBalance.cbGCO2eq.toLocaleString()} gCO₂eq`
+      });
       return;
     }
 
@@ -61,37 +72,74 @@ const BankingTab = () => {
       b.shipId === selectedShip ? { ...b, cbGCO2eq: b.cbGCO2eq - amount } : b
     ));
     setBankAmount("");
-    toast.success(`Successfully banked ${amount.toLocaleString()} gCO₂eq`);
+    toast.success(`Banking successful`, {
+      description: `Banked ${amount.toLocaleString()} gCO₂eq from ${selectedShip}`
+    });
   };
 
   const handleApply = () => {
-    if (!currentBalance || currentBalance.cbGCO2eq >= 0) {
-      toast.error("Can only apply banked surplus to deficit");
+    if (!currentBalance) {
+      toast.error("No ship selected");
+      return;
+    }
+
+    if (currentBalance.cbGCO2eq >= 0) {
+      toast.error("Cannot apply to surplus", {
+        description: "Only deficit CB can receive banked amounts"
+      });
+      return;
+    }
+
+    if (bankedAmount <= 0) {
+      toast.error("No banked surplus available", {
+        description: "Bank positive CB first before applying"
+      });
       return;
     }
 
     const amount = parseFloat(applyAmount);
-    if (isNaN(amount) || amount <= 0 || amount > bankedAmount) {
-      toast.error("Invalid apply amount or insufficient banked surplus");
+    if (isNaN(amount) || amount <= 0) {
+      toast.error("Invalid amount", {
+        description: "Please enter a positive number"
+      });
       return;
+    }
+
+    if (amount > bankedAmount) {
+      toast.error("Insufficient banked amount", {
+        description: `Available: ${bankedAmount.toLocaleString()} gCO₂eq`
+      });
+      return;
+    }
+
+    // Calculate the maximum useful amount (don't over-apply)
+    const maxUseful = Math.abs(currentBalance.cbGCO2eq);
+    const actualAmount = Math.min(amount, maxUseful);
+
+    if (actualAmount < amount) {
+      toast.warning("Amount adjusted", {
+        description: `Applied ${actualAmount.toLocaleString()} gCO₂eq (max needed)`
+      });
     }
 
     const transaction: BankTransaction = {
       id: `TXN${Date.now()}`,
       shipId: selectedShip,
       type: "apply",
-      amount,
+      amount: actualAmount,
       date: new Date().toISOString(),
       cbBefore: currentBalance.cbGCO2eq,
-      cbAfter: currentBalance.cbGCO2eq + amount,
+      cbAfter: currentBalance.cbGCO2eq + actualAmount,
     };
 
     setTransactions([transaction, ...transactions]);
     setBalances(balances.map((b) =>
-      b.shipId === selectedShip ? { ...b, cbGCO2eq: b.cbGCO2eq + amount } : b
+      b.shipId === selectedShip ? { ...b, cbGCO2eq: b.cbGCO2eq + actualAmount } : b
     ));
     setApplyAmount("");
-    toast.success(`Successfully applied ${amount.toLocaleString()} gCO₂eq from bank`);
+    toast.success(`Application successful`, {
+      description: `Applied ${actualAmount.toLocaleString()} gCO₂eq to ${selectedShip}`
+    });
   };
 
   return (
@@ -149,14 +197,21 @@ const BankingTab = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Available to Bank</Label>
-              <div className="text-2xl font-bold text-success">
-                {currentBalance && currentBalance.cbGCO2eq > 0
-                  ? `+${currentBalance.cbGCO2eq.toLocaleString()}`
+              <Label>Current CB ({selectedShip})</Label>
+              <div className={`text-2xl font-bold ${currentBalance && currentBalance.cbGCO2eq >= 0 ? 'text-success' : 'text-destructive'}`}>
+                {currentBalance
+                  ? `${currentBalance.cbGCO2eq >= 0 ? '+' : ''}${currentBalance.cbGCO2eq.toLocaleString()}`
                   : "0"}{" "}
                 gCO₂eq
               </div>
             </div>
+            {currentBalance && currentBalance.cbGCO2eq > 0 && (
+              <div className="rounded-lg bg-success/10 p-3">
+                <p className="text-sm text-success">
+                  ✓ Available to bank: {currentBalance.cbGCO2eq.toLocaleString()} gCO₂eq
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="bank-amount">Amount to Bank</Label>
               <Input
@@ -190,11 +245,21 @@ const BankingTab = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Banked Amount Available</Label>
+              <Label>Banked Surplus ({selectedShip})</Label>
               <div className="text-2xl font-bold text-primary">
                 {bankedAmount.toLocaleString()} gCO₂eq
               </div>
             </div>
+            {currentBalance && currentBalance.cbGCO2eq < 0 && bankedAmount > 0 && (
+              <div className="rounded-lg bg-warning/10 p-3">
+                <p className="text-sm text-warning">
+                  ⚠ Deficit detected: {currentBalance.cbGCO2eq.toLocaleString()} gCO₂eq
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Apply banked surplus to reduce deficit
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="apply-amount">Amount to Apply</Label>
               <Input

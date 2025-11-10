@@ -23,13 +23,19 @@ const RoutesTab = () => {
   });
 
   const handleSetBaseline = (routeId: string) => {
+    const route = routes.find((r) => r.routeId === routeId);
+    if (!route) return;
+
     setRoutes((prev) =>
-      prev.map((route) => ({
-        ...route,
-        isBaseline: route.routeId === routeId,
+      prev.map((r) => ({
+        ...r,
+        isBaseline: r.routeId === routeId,
       }))
     );
-    toast.success(`Route ${routeId} set as baseline`);
+    
+    toast.success("Baseline updated", {
+      description: `${routeId} (${route.ghgIntensity.toFixed(2)} gCO₂e/MJ) set as reference`
+    });
   };
 
   return (
